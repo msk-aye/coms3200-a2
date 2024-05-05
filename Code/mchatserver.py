@@ -1,10 +1,20 @@
+# mchatserver.py - Multi-threaded chat server program
+# Author: Muhammad Sulaman Khan
+# Student Number : 47511921
+
+# Imports
 import socket
 import threading
 import sys
 import time
-import queue
 import os
+import queue
 
+
+# Constants
+MIN_PORT = 1
+MAX_PORT = 49151
+MAX_CHANNEL_CAPACITY = 5
 
 class Client:
     def __init__(self, username, connection, address):
@@ -26,23 +36,41 @@ class Channel:
         self.queue = queue.Queue()
         self.clients = []
 
+
 def parse_config(config_file: str) -> list:
     """
-    Parses lines from a given configuration file and VALIDATE the format of each line. The 
-    function validates each part and if valid returns a list of tuples where each tuple contains
-    (channel_name, channel_port, channel_capacity). The function also ensures that there are no 
-    duplicate channel names or ports. if not valid, exit with status code 1.
+    Parses lines from a given configuration file and VALIDATE the format of
+    each line. The function validates each part and if valid returns a list of
+    tuples where each tuple contains (channel_name, channel_port,
+    channel_capacity). The function also ensures that there are no duplicate
+    channel names or ports. if not valid, exit with status code 1.
     Status: TODO
     Args:
-        config_file (str): The path to the configuration file (e.g, config_01.txt).
+        config_file (str): The path to the configuration file (e.g, cnfig.txt).
     Returns:
         list: A list of tuples where each tuple contains:
         (channel_name, channel_port, and channel_capacity)
     Raises:
         SystemExit: If there is an error in the configuration file format.
     """
-    # Write your code here...
-    pass
+    lines = open(config_file, "r").readlines()
+    channels = []
+    names = []
+
+    for line in lines:
+        channel = line.strip().split()
+        name = channel[0]
+        port = int(channel[1])
+        capacity = int(channel[2])
+
+        if name.isalpha() and port in range(MIN_PORT, MAX_PORT) \
+                and capacity < MAX_CHANNEL_CAPACITY and name not in names:
+            channels.append((name, port, capacity))
+            names.append(name)
+
+        else:
+            sys.exit(1)
+
 
 def get_channels_dictionary(parsed_lines) -> dict:
     """
@@ -50,14 +78,14 @@ def get_channels_dictionary(parsed_lines) -> dict:
     Status: Given
     Args:
         parsed_lines (list): A list of tuples where each tuple contains:
-        (channel_name, channel_port, and channel_capacity)
+        (name, port, and capacity)
     Returns:
-        dict: A dictionary of Channel objects where the key is the channel name.
+        dict: A dictionary of Channel objects with key as the channel name.
     """
     channels = {}
 
-    for channel_name, channel_port, channel_capacity in parsed_lines:
-        channels[channel_name] = Channel(channel_name, channel_port, channel_capacity)
+    for name, port, capacity in parsed_lines:
+        channels[name] = Channel(name, port, capacity)
 
     return channels
 
@@ -70,15 +98,28 @@ def quit_client(client, channel) -> None:
     if client.in_queue:
         # Write your code here...
         # remove, close connection, and print quit message in the server.
-
+        channel.queue = remove_item(channel.queue, client)
+        client.in_queue = False
+        
         # broadcast queue update message to all the clients in the queue.
-        pass
+        
 
     # if client is in channel
     else:
         # Write your code here...
         # remove client from the channel, close connection, and broadcast quit message to all clients.
         pass
+
+def server_broadcast(channel, msg) -> None:
+    """
+    Broadcast a message to all clients in the channel.
+    Status: Given
+    Args:
+        channel (Channel): The channel to broadcast the message to.
+        msg (str): The message to broadcast.
+    """
+    for client in channel.clients:
+        client.connection.send(msg.encode())
 
 def send_client(client, channel, msg) -> None:
     """

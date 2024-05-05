@@ -1,3 +1,7 @@
+# mchatclient.py - Multi-threaded chat client program
+# Author: Muhammad Sulaman Khan
+# Student Number : 47511921
+
 import socket
 import threading
 import sys
