@@ -9,6 +9,10 @@ import os
 import time
 
 
+# Constants
+
+
+
 class User():
     """
     Holds the chatclient's client socket information. Used for interacting
@@ -47,7 +51,8 @@ class User():
         Send the string to the socket encoded.
         Args:
             data (string): string to be sent to server.
-        Returns: False if a connection reset error occurred, or true on a successful send.
+        Returns: False if a connection reset error occurred, or true on a
+        successful send.
         """
         try:
             self.soc.send(data.encode())
@@ -122,10 +127,11 @@ def output_thread(quitEvent, user):
 
         # add elif block to handle instructions from server
         # NOTE: some commands such as quit is directly sent over to the server
-        # server processes the command and closes then confirms to quit by sending
-        # a code/ message to the client and exits itself. The block of code you're
-        # going to add here is supposed to handle the message/code sent by the server
-        # and close the client as well. similarly for switch, and send!
+        # server processes the command and closes then confirms to quit by
+        # sending a code/ message to the client and exits itself. The block of
+        # code you're going to add here is supposed to handle the message/code
+        # sent by the server and close the client as well. similarly for
+        # switch, and send!
 
         else:
             print(output, flush=True)  # Send output to stdout
