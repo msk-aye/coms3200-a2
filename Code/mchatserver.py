@@ -2,6 +2,7 @@
 # Author: Muhammad Sulaman Khan
 # Student Number : 47511921
 
+
 # Imports
 import socket
 import threading
@@ -20,30 +21,36 @@ WELCOME_MESSAGE_QUEUE = "[Server message (%s)] Welcome to the %s waiting" \
                         " room, %s."
 QUIT = "[Server message (%s)] %s has left the channel."
 QUEUE_UPDATE = "[Server message (%s)] You are in the waiting queue and there" \
-                " are %d users(s) ahead of you."
+               " are %d users(s) ahead of you."
 MUTED_SERVER = "[Server message (%s)] Muted %s for %d seconds."
 MUTED_CLIENT = "[Server message (%s)] You have been  muted for %d seconds."
 MUTED_CLIENTS = "[Server message (%s)] %s has been muted for %d seconds."
 STILL_MUTED = "[Server message (%s)] You are still muted for %d seconds."
 NOT_HERE = "[Server message (%s)] %s is not here."
 INVALID_MUTE_TIME = "[Server message (%s)] Invalid mute time."
-INVALID_COMMAND_STRUCTURE = "[Server message (%s)] Invalid command structure."
 SENT_CLIENT = "[Server message (%s)] You sent %s to %s."
 SENT_SERVER = "[Server message (%s)] %s sent %s to %s."
 INVALID_FILE = "[Server message (%s)] %s does not exist."
 CHANNEL = "[Channel] %s %d Capacity: %d/%d, Queue: %d."
 CLIENT_MESSAGE = "[%s (%s)] %s"
-CLIENT_HANDLER_ERROR = "Error in client handler: %s"
-WHISPER = "[%s whispers to you: (%s)] %s"
-WHISPER_SERVER = "[%s whispers to %s: (%s)] %s"
-DUPLICATE_USER = "[Server message (%s)] %s already has a user with username" \
-                    " %s."
+CLIENT_HANDLER_ERROR = "Error in client handler: %s."
+WHISPER = "[%s whispers to you: (%s)] %s."
+WHISPER_SERVER = "[%s whispers to %s: (%s)] %s."
+DUPLICATE_USER = "[Server message (%s)] %s already has a user with" \
+                 " username %s."
 JOINED_CLIENT = "[Server message (%s)] %s has joined the channel."
 JOINED_SERVER = "[Server message (%s)] %s has joined the %s room."
 INVALID_CHANNEL = "[Server message (%s)] %s does not exist."
 CHANNEL_EMPTIED = "[Server message (%s)] %s has been emptied."
 INVALID_MUTE_TIME = "[Server message (%s)] Invalid mute time."
 AFK = "[Server message (%s)] %s went AFK."
+SEND_ERROR = "[Server message (%s)] Usage /send <target> <file_path>."
+WHISPER_ERROR = "[Server message (%s)] Usage /whisper <target> <message>."
+SWITCH_ERROR = "[Server message (%s)] Usage /switch <channel_name>."
+KICK_ERROR = "[Server message (%s)] Usage /kick <channel_name> <username>."
+EMPTY_ERROR = "[Server message (%s)] Usage /empty <channel_name>."
+MUTE_ERROR = "[Server message (%s)] Usage /mute <channel_name> <username> " \
+             "<time>."
 
 
 class Client:
@@ -94,12 +101,15 @@ def parse_config(config_file: str) -> list:
         capacity = int(channel[3])
 
         if name.isalpha() and port in range(MIN_PORT, MAX_PORT) \
-                and capacity <=MAX_CHANNEL_CAPACITY and name not in names:
+                and capacity <= MAX_CHANNEL_CAPACITY and name not in names:
             channels.append((name, port, capacity))
             names.append(name)
 
         else:
             sys.exit(1)
+
+    if len(channels) == 2:
+        sys.exit(1)
 
     return channels
 
@@ -124,26 +134,25 @@ def get_channels_dictionary(parsed_lines) -> dict:
 
 def quit_client(client, channel, close=True, silent=False) -> None:
     """
-    Implement client quitting function
+    Implement client quitting function. Used differently in some functions,
+    hence the addition of the close and silent parameters, with default values.
+    Close is responsible for closing the connection, and silent is responsible
+    for not broadcasting the quit message to all clients.
     Status: TODO
     """
     if client.in_queue:
-        # remove, close connection, and print quit message in the server.
         channel.queue = remove_item(channel.queue, client)
         client.in_queue = False
 
         if close:
             client.connection.close()
 
-        # broadcast queue update message to all the clients in the queue.
         if not silent:
-            sys.stdout.write(QUIT % (time.strftime('%H:%M:%S'),
+            print(QUIT % (time.strftime('%H:%M:%S'),
                                      client.username))
             queue_update_message(channel)
 
     else:
-        # remove client from the channel, close connection, and broadcast quit
-        # message to all clients.
         channel.queue = remove_item(channel.queue, client)
         client.in_queue = False
 
@@ -164,14 +173,14 @@ def queue_update_message(channel) -> None:
         channel (Channel): The channel to update the queue message for.
     """
     for position, client in enumerate(list(channel.queue.queue)):
-        # send queue update message to the client
         client.connection.send((QUEUE_UPDATE % (time.strftime('%H:%M:%S'),
                                                 position)).encode())
 
 
 def server_broadcast(channel, msg, exclude=None) -> None:
     """
-    Broadcast a message to all clients in the channel.
+    Broadcast a message to all clients in the channel, can exclude a specific
+    client if desired.
     Status: Mine
     Args:
         channel (Channel): The channel to broadcast the message to.
@@ -186,49 +195,52 @@ def send_client(client, channel, msg) -> None:
     """
     Implement file sending function, if args for /send are valid.
     Else print appropriate message and return.
-    Status: TODO need help
+    Status: TODO -- CHECK
     """
-    # if in queue, do nothing
     if client.in_queue:
         return
 
-    else:
-        # if muted, send mute message to the client
-        if client.muted:
-            client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
-                                            client.mute_duration)).encode())
-            return
+    if client.muted:
+        client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
+                                        client.mute_duration)).encode())
+        return
 
-        # validate the command structure
-        command =  msg.split()
+    # validate the command structure
+    command =  msg.split()
 
-        if len(command) != 3:
-            client.connection.send(INVALID_COMMAND_STRUCTURE.encode())
-            pass
+    if len(command) != 3:
+        client.connection.send((SEND_ERROR %
+                                time.strftime('%H:%M:%S')).encode())
+        return
 
-        target = command[1]
-        file_path = command[2]
+    target = command[1]
+    file_path = command[2]
 
-        target_client = find_client(channel, target)
-        if not target_client:
-            client.connection.send((NOT_HERE % (time.strftime('%H:%M:%S'),
-                                        target)).encode())
-            pass
+    target_client = find_client(channel, target)
+    if not target_client:
+        client.connection.send((NOT_HERE % (time.strftime('%H:%M:%S'),
+                                    target)).encode())
 
-        # check for file existence
         if not os.path.exists(file_path):
             client.connection.send((INVALID_FILE %
                                     (time.strftime('%H:%M:%S'),
                                         file_path)).encode())
-            pass
 
-        # check if receiver is in the channel, and send the file
-        send_file = open(file_path, "r")
+        return
+
+    # check for file existence
+    if not os.path.exists(file_path):
+        client.connection.send((INVALID_FILE %
+                                (time.strftime('%H:%M:%S'),
+                                    file_path)).encode())
+        return
+
+    send_file = open(file_path, "r")
+    data = send_file.read()
+
+    while data:
+        target_client.connection.send(str(data).encode())
         data = send_file.read()
-
-        while data:
-            target_client.connection.send(str(data).encode())
-            data = send_file.read()
 
 
 def find_client(channel, username) -> Client:
@@ -250,15 +262,15 @@ def find_client(channel, username) -> Client:
 
 def list_clients(client, channels) -> None:
     """
-    List all clients in all the channels.
-    Status: TODO
+    V1.1 - List all channels and their capacity.
+    Status: TODO  -- CHECK
     """
     channel_list = []
 
     for channel in channels.values():
         channel_list.append(CHANNEL % (channel.name, channel.port,
                                     len(channel.clients), channel.capacity,
-                                    channel.queue.queue.qsize()))
+                                    channel.queue.qsize()))
 
     client.connection.send("\n".join(channel_list).encode())
 
@@ -273,65 +285,61 @@ def whisper_client(client, channel, msg) -> None:
     if client.in_queue:
         return
 
-    else:
-        # if muted, send mute message to the client
-        if client.muted:
-            client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
-                                            client.mute_duration)).encode())
-            return
+    # if muted, send mute message to the client
+    if client.muted:
+        client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
+                                        client.mute_duration)).encode())
+        return
 
-        else:
-            # validate the command structure
-            command = msg.split()
+    # validate the command structure
+    command = msg.split()
 
-            if len(command) != 3:
-                client.connection.send(INVALID_COMMAND_STRUCTURE.encode())
-                pass
+    if len(command) != 3:
+        client.connection.send((WHISPER_ERROR %
+                                time.strftime('%H:%M:%S')).encode())
+        return
 
-            target = command[1]
-            message = command[2]
+    target = command[1]
+    message = command[2]
 
-            # validate if the target user is in the channel
-            target_client = find_client(channel, target)
-            if not target_client:
-                client.connection.send((NOT_HERE % (time.strftime('%H:%M:%S'),
-                                                    target)).encode())
-                pass
+    target_client = find_client(channel, target)
+    if not target_client:
+        client.connection.send((NOT_HERE % (time.strftime('%H:%M:%S'),
+                                            target)).encode())
+        return
 
-            # if target user is in the channel, send the whisper message
-            target_client.connection.send((WHISPER % (client.username,
-                                            time.strftime('%H:%M:%S'),
-                                            message)).encode())
+    target_client.connection.send((WHISPER % (client.username, 
+                                 time.strftime('%H:%M:%S'), message)).encode())
 
-            # print whisper server message
-            sys.stdout.write(WHISPER_SERVER % (client.username, 
-                                               target_client.username,
-                                               time.strftime('%H:%M:%S'),
-                                               message))
+    print(WHISPER_SERVER % (client.username, target_client.username,
+                                        time.strftime('%H:%M:%S'), message))
 
 
-def switch_channel(client, channel, msg, channels) -> None:
+def switch_channel(client, channel, msg, channels) -> bool:
     """
     Implement channel switching function, if args for /switch are valid.
     Else print appropriate message and return.
-    Status: TODO
+
+    V1.1 - Returns: bool, if the switch is valid or not.
+    Status: TODO  - Check
     """
     # validate the command structure
     command = msg.split()
 
     if len(command) != 2:
-        client.connection.send(INVALID_COMMAND_STRUCTURE.encode())
-        return
+        client.connection.send((SWITCH_ERROR %
+                                time.strftime('%H:%M:%S')).encode())
+        return False
 
     channel_name = command[1]
 
-    # check if the new channel exists
-    if channel_name not in channels.keys():
+    # check if the channel exists
+    other_channel = channels.get(channel_name, None)
+
+    if not other_channel:
         client.conn.send((INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
                                             channel_name)).encode())
-        return
-
-    other_channel = channels[channel_name]
+        return False
 
     # check if there is a client with the same username in the new channel
     if not (check_duplicate_username(client.username, other_channel,
@@ -339,13 +347,13 @@ def switch_channel(client, channel, msg, channels) -> None:
         client.conn.send((DUPLICATE_USER % (time.strftime('%H:%M:%S'),
                                             other_channel.name,
                                             client.username)).encode())
-        return
+        return False
 
-    # remove client from current channel
+    # remove client and connect to other channel
     quit_client(client, channel, close=False)
-
-    # tell client to connect to new channel and close connection
     position_client(other_channel, client.conn, client.username, client)
+
+    return True
 
 
 def broadcast_in_channel(client, channel, msg) -> None:
@@ -363,25 +371,25 @@ def broadcast_in_channel(client, channel, msg) -> None:
                                             client.mute_duration)).encode())
         return
 
-    else:
-        # broadcast message to all clients in the channel
-        for client in channel.clients:
-            client.connection.send((CLIENT_MESSAGE % 
-                                    (time.strftime('%H:%M:%S'), 
-                                     client.username, msg)).encode())
+    # broadcast message to all clients in the channel
+    for client in channel.clients:
+        client.connection.send((CLIENT_MESSAGE % (time.strftime('%H:%M:%S'),
+                                            client.username, msg)).encode())
 
 
 def client_handler(client, channel, channels) -> None:
     """
-    Handles incoming messages from a client in a channel. Supports commands to
-    quit, send, switch, whisper, and list channels. Manages client's mute
-    status and remaining time. Handles client disconnection and exceptions
-    during message processing.
-    Status: TODO (check the "# Write your code here..." block in Exception)
+    V1.1 - Handles incoming messages from a client in a channel. Supports
+    commands to quit, send, switch, whisper, and list channels. Manages
+    client's mute status and remaining time. Handles client disconnection
+    and exceptions during message processing.
+
     Args:
         client (Client): The client to handle.
         channel (Channel): The channel in which the client is.
         channels (dict): A dictionary of all channels.
+
+    Status: TODO
     """
     while True:
         if client.kicked:
@@ -394,16 +402,17 @@ def client_handler(client, channel, channels) -> None:
                 quit_client(client, channel)
                 break
             elif msg.startswith("/send"):
-                print("In send")
                 send_client(client, channel, msg)
             elif msg.startswith("/list"):
-                print("In list")
                 list_clients(client, channels)
             elif msg.startswith("/whisper"):
                 whisper_client(client, channel, msg)
             elif msg.startswith("/switch"):
-                switch_channel(client, channel, msg, channels)
-                break
+                is_valid = switch_channel(client, channel, msg, channels)
+                if is_valid:
+                    break
+                else:
+                    continue
 
             # if not a command, broadcast message to all clients in the channel
             else:
@@ -417,8 +426,7 @@ def client_handler(client, channel, channels) -> None:
         except OSError:
             break
         except Exception as error:
-            # remove client from the channel, close connection
-            sys.stdout.write(CLIENT_HANDLER_ERROR % error)
+            print(CLIENT_HANDLER_ERROR % error)
             quit_client(client, channel)
             break
 
@@ -429,10 +437,11 @@ def check_duplicate_username(username, channel, conn) -> bool:
     and true if not. Also send the correct message to the client.
     Status: TODO
     """
-    
-    for client in channel.clients.append(list(channel.queue.queue)):
+    all_clients = channel.clients + list(channel.queue.queue)
+    for client in all_clients:
         if client.username == username:
-            conn.send()
+            conn.send((DUPLICATE_USER % (time.strftime('%H:%M:%S'),
+                                        channel.name, username).encode()))
             return False
 
     return True
@@ -443,21 +452,19 @@ def position_client(channel, conn, username, new_client) -> None:
     Place a client in a channel or queue based on the channel's capacity.
     Status: TODO
     """
-    if len(channel.clients) < channel.capacity:
-        # put client in channel and reset remaining time before AFK
+    if len(channel.clients) < channel.capacity and channel.queue.empty():
         channel.clients.append(new_client)
         new_client.in_queue = False
         new_client.remaining_time = 100
         server_broadcast(channel, JOINED_CLIENT % (time.strftime('%H:%M:%S'),
                                                     username))
-        sys.stdout.write(JOINED_SERVER % (time.strftime('%H:%M:%S'), username,
-                                          channel.name))
+        print(JOINED_SERVER % (time.strftime('%H:%M:%S'), username,
+                                            channel.name))
 
     else:
-        # put client in queue
         channel.queue.put(new_client)
         new_client.in_queue = True
-        position = channel.queue.queue.qsize() - 1
+        position = channel.queue.qsize() - 1
         conn.send((WELCOME_MESSAGE_QUEUE, time.strftime('%H:%M:%S'),
                    channel.name, username).encode())
         conn.send((QUEUE_UPDATE % (time.strftime('%H:%M:%S'),
@@ -548,10 +555,10 @@ def process_queue(channel) -> None:
     while True:
         try:
             if not channel.queue.empty() \
-                    and len(channel.clients) < channel.capacity:
+                and len(channel.clients) < channel.capacity:
 
                 # Dequeue a client from the queue and add them to the channel
-                client = channel.queue.queue.pop(0)
+                client = channel.queue.queue.pop()
                 position_client(channel, client.connection, client.username,
                                 client)
 
@@ -560,6 +567,7 @@ def process_queue(channel) -> None:
 
                 # Sleep for 1 second
                 time.sleep(1)
+
         except EOFError:
             continue
 
@@ -578,7 +586,7 @@ def kick_user(msg, channels) -> None:
     command = msg.split()
 
     if len(command) != 3:
-        sys.stdout.write(INVALID_COMMAND_STRUCTURE % time.strftime('%H:%M:%S'))
+        print(KICK_ERROR % time.strftime('%H:%M:%S'))
         return
 
     channel_name = command[1]
@@ -588,14 +596,14 @@ def kick_user(msg, channels) -> None:
     channel = channels.get(channel_name, None)
 
     if not channel:
-        sys.stdout.write(INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
+        print(INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
                                             channel_name))
         return
 
     # if channel exists, check if the user is in the channel
     client = find_client(channel, username)
     if not client:
-        sys.stdout.write(NOT_HERE % (time.strftime('%H:%M:%S'), username))
+        print(NOT_HERE % (time.strftime('%H:%M:%S'), username))
         return
 
     # if user is in the channel, kick the user
@@ -608,14 +616,14 @@ def empty(msg, channels) -> None:
     Implement /empty function
     Status: TODO
     Args:
+        msg (str): The command to empty a channel.
         channels (dict): A dictionary of all channels.
-        channel_name (str): The name of the channel to empty.
     """
     # validate the command structure
     command = msg.split()
 
     if len(command) != 2:
-        sys.stdout.write(INVALID_COMMAND_STRUCTURE % time.strftime('%H:%M:%S'))
+        print(EMPTY_ERROR % time.strftime('%H:%M:%S'))
         return
 
     channel_name = command[1]
@@ -624,7 +632,7 @@ def empty(msg, channels) -> None:
     channel = channels.get(channel_name, None)
 
     if not channel:
-        sys.stdout.write(INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
+        print(INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
                                             channel_name))
         return
 
@@ -632,7 +640,7 @@ def empty(msg, channels) -> None:
     for client in channel.clients:
         quit_client(client, channel, silent=True)
 
-    sys.stdout.write(CHANNEL_EMPTIED % (time.strftime('%H:%M:%S'),
+    print(CHANNEL_EMPTIED % (time.strftime('%H:%M:%S'),
                                         channel_name))
 
 
@@ -641,40 +649,37 @@ def mute_user(msg, channels) -> None:
     Implement /mute function
     Status: TODO
     Args:
+        msg (str): The command to mute a user in a channel.
         channels (dict): A dictionary of all channels.
-        channel_name (str): The name of the channel to mute the user in.
-    Returns:
-        None
     """
     # validate the command structure
     command = msg.split()
 
     if len(command) != 4:
-        sys.stdout.write(INVALID_COMMAND_STRUCTURE % time.strftime('%H:%M:%S'))
+        print(MUTE_ERROR % time.strftime('%H:%M:%S'))
         return
 
     channel_name = command[1]
     username = command[2]
     mute_time = int(command[3])
 
-    # check if the mute time is valid
-    if mute_time <= 0:
-        sys.stdout.write(INVALID_MUTE_TIME % time.strftime('%H:%M:%S'))
-        return
-
     # check if the channel exists in the server
     channel = channels.get(channel_name, None)
-
-    if not channel:
-        sys.stdout.write(INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
-                                            channel_name))
-        return
 
     # if the channel exists, check if the user is in the channel
     client = find_client(channel, username)
 
-    if not client:
-        sys.stdout.write(NOT_HERE % (time.strftime('%H:%M:%S'), username))
+    if not client or not channel:
+        print(NOT_HERE % (time.strftime('%H:%M:%S'), username))
+
+        if mute_time <= 0:
+            print(INVALID_MUTE_TIME % time.strftime('%H:%M:%S'))
+
+        return
+
+    # check if the mute time is valid
+    if mute_time <= 0:
+        print(INVALID_MUTE_TIME % time.strftime('%H:%M:%S'))
         return
 
     # if user is in the channel, mute it and send messages to all clients
@@ -683,9 +688,11 @@ def mute_user(msg, channels) -> None:
 
     client.connection.send((MUTED_CLIENT % 
                             (time.strftime('%H:%M:%S'))).encode())
+
     server_broadcast(channel, MUTED_CLIENTS % (time.strftime('%H:%M:%S'),
                                         username, mute_time), exclude=username)
-    sys.stdout.write(MUTED_SERVER % (time.strftime('%H:%M:%S'), username,
+
+    print(MUTED_SERVER % (time.strftime('%H:%M:%S'), username,
                                     mute_time))
 
 
@@ -699,7 +706,8 @@ def shutdown(channels) -> None:
     # close connections of all clients in all channels and exit the server
     for channel in channels:
         channel = channels[channel]
-        for client in channel.clients.append(list(channel.queue.queue)):
+        all_clients = channel.clients + list(channel.queue.queue)
+        for client in all_clients:
             quit_client(client, channel, silent=True)
 
     # end of code insertion, keep the os._exit(0) as it is
@@ -799,33 +807,37 @@ def handle_mute_durations(channels) -> None:
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python3 chatserver.py configfile")
-        sys.exit(1)
+    try:
+        if len(sys.argv) != 2:
+            print("Usage: python3 chatserver.py configfile")
+            sys.exit(1)
 
-    config_file = sys.argv[1]
+        config_file = sys.argv[1]
 
-    # parsing and creating channels
-    parsed_lines = parse_config(config_file)
-    channels = get_channels_dictionary(parsed_lines)
+        # parsing and creating channels
+        parsed_lines = parse_config(config_file)
+        channels = get_channels_dictionary(parsed_lines)
 
-    # creating individual threads to handle channels connections
-    for _, channel in channels.items():
-        thread = threading.Thread(target=channel_handler,
-                                  args=(channel, channels))
-        thread.start()
+        # creating individual threads to handle channels connections
+        for _, channel in channels.items():
+            thread = threading.Thread(
+                target=channel_handler, args=(channel, channels))
+            thread.start()
 
-    server_commands_thread = threading.Thread(target=server_commands,
-                                              args=(channels,))
-    server_commands_thread.start()
+        server_commands_thread = threading.Thread(
+            target=server_commands, args=(channels,))
+        server_commands_thread.start()
 
-    inactive_clients_thread = threading.Thread(target=check_inactive_clients,
-                                               args=(channels,))
-    inactive_clients_thread.start()
+        inactive_clients_thread = threading.Thread(
+            target=check_inactive_clients, args=(channels,))
+        inactive_clients_thread.start()
 
-    mute_duration_thread = threading.Thread(target=handle_mute_durations,
-                                            args=(channels,))
-    mute_duration_thread.start()
+        mute_duration_thread = threading.Thread(
+            target=handle_mute_durations, args=(channels,))
+        mute_duration_thread.start()
+    except KeyboardInterrupt:
+        print("Ctrl + C Pressed. Exiting...")
+        os._exit(0)
 
 
 if __name__ == "__main__":
