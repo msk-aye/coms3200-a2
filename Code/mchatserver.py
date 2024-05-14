@@ -16,6 +16,8 @@ import queue
 MIN_PORT = 1
 MAX_PORT = 49151
 MAX_CHANNEL_CAPACITY = 5
+CLIENT_INTIAL_TIME = 100
+INITIAL_MUTE = 0
 WELCOME_MESSAGE = "[Server message (%s)] Welcome to the %s channel, %s."
 WELCOME_MESSAGE_QUEUE = "[Server message (%s)] Welcome to the %s waiting" \
                         " room, %s."
@@ -23,7 +25,7 @@ QUIT = "[Server message (%s)] %s has left the channel."
 QUEUE_UPDATE = "[Server message (%s)] You are in the waiting queue and there" \
                " are %d users(s) ahead of you."
 MUTED_SERVER = "[Server message (%s)] Muted %s for %d seconds."
-MUTED_CLIENT = "[Server message (%s)] You have been  muted for %d seconds."
+MUTED_CLIENT = "[Server message (%s)] You have been muted for %d seconds."
 MUTED_CLIENTS = "[Server message (%s)] %s has been muted for %d seconds."
 STILL_MUTED = "[Server message (%s)] You are still muted for %d seconds."
 NOT_HERE = "[Server message (%s)] %s is not here."
@@ -31,7 +33,7 @@ INVALID_MUTE_TIME = "[Server message (%s)] Invalid mute time."
 SENT_CLIENT = "[Server message (%s)] You sent %s to %s."
 SENT_SERVER = "[Server message (%s)] %s sent %s to %s."
 INVALID_FILE = "[Server message (%s)] %s does not exist."
-CHANNEL = "[Channel] %s %d Capacity: %d/%d, Queue: %d."
+CHANNEL = "[Channel] %s %d Capacity: %d/ %d, Queue: %d."
 CLIENT_MESSAGE = "[%s (%s)] %s"
 CLIENT_HANDLER_ERROR = "Error in client handler: %s."
 WHISPER = "[%s whispers to you: (%s)] %s."
@@ -39,7 +41,7 @@ WHISPER_SERVER = "[%s whispers to %s: (%s)] %s."
 DUPLICATE_USER = "[Server message (%s)] %s already has a user with" \
                  " username %s."
 JOINED_CLIENT = "[Server message (%s)] %s has joined the channel."
-JOINED_SERVER = "[Server message (%s)] %s has joined the %s room."
+JOINED_SERVER = "[Server message (%s)] %s has joined the %s channel."
 INVALID_CHANNEL = "[Server message (%s)] %s does not exist."
 CHANNEL_EMPTIED = "[Server message (%s)] %s has been emptied."
 INVALID_MUTE_TIME = "[Server message (%s)] Invalid mute time."
@@ -51,6 +53,14 @@ KICK_ERROR = "[Server message (%s)] Usage /kick <channel_name> <username>."
 EMPTY_ERROR = "[Server message (%s)] Usage /empty <channel_name>."
 MUTE_ERROR = "[Server message (%s)] Usage /mute <channel_name> <username> " \
              "<time>."
+SEND_FILE = "FILE: %s:"
+SWITCH_REQUEST = "SWITCH: %s"
+QUIT_REQUEST = "QUIT: %s"
+
+# TODO:
+# Client cant send message after switch  - handled with code or break?
+# Check and test the Queue functionality
+# Handle the client sides for the commands
 
 
 class Client:
@@ -60,9 +70,9 @@ class Client:
         self.address = address
         self.kicked = False
         self.in_queue = True
-        self.remaining_time = 100 # remaining time before AFK
+        self.remaining_time = CLIENT_INTIAL_TIME
         self.muted = False
-        self.mute_duration = 0
+        self.mute_duration = INITIAL_MUTE
 
 
 class Channel:
@@ -90,20 +100,30 @@ def parse_config(config_file: str) -> list:
     Raises:
         SystemExit: If there is an error in the configuration file format.
     """
-    lines = open(config_file, "r").readlines()
+    config_file = open(config_file, "r")
+    lines = config_file.readlines()
+    config_file.close()
+
     channels = []
     names = []
+    ports = []
 
     for line in lines:
         channel = line.strip().split()
+
+        if len(channel) != 4:
+            sys.exit(1)
+
         name = channel[1]
         port = int(channel[2])
         capacity = int(channel[3])
 
         if name.isalpha() and port in range(MIN_PORT, MAX_PORT) \
-                and capacity <= MAX_CHANNEL_CAPACITY and name not in names:
+                and capacity <= MAX_CHANNEL_CAPACITY and name not in names \
+                and port not in ports:
             channels.append((name, port, capacity))
             names.append(name)
+            ports.append(port)
 
         else:
             sys.exit(1)
@@ -148,20 +168,19 @@ def quit_client(client, channel, close=True, silent=False) -> None:
             client.connection.close()
 
         if not silent:
-            print(QUIT % (time.strftime('%H:%M:%S'),
-                                     client.username))
+            print(QUIT % (time.strftime('%H:%M:%S'), client.username))
             queue_update_message(channel)
 
     else:
-        channel.queue = remove_item(channel.queue, client)
-        client.in_queue = False
-
         if close:
+            channel.clients.remove(client)
             client.connection.close()
 
         if not silent:
+            print(QUIT % (time.strftime('%H:%M:%S'), client.username))
             server_broadcast(channel, QUIT % (time.strftime('%H:%M:%S'),
-                                            client.username))
+                                            client.username),
+                             exclude=client.username)
 
 
 def queue_update_message(channel) -> None:
@@ -195,13 +214,13 @@ def send_client(client, channel, msg) -> None:
     """
     Implement file sending function, if args for /send are valid.
     Else print appropriate message and return.
-    Status: TODO -- CHECK
+    Status: TODO
     """
     if client.in_queue:
         return
 
     if client.muted:
-        client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
+        client.connection.send((STILL_MUTED % (time.strftime('%H:%M:%S'),
                                         client.mute_duration)).encode())
         return
 
@@ -238,9 +257,14 @@ def send_client(client, channel, msg) -> None:
     send_file = open(file_path, "r")
     data = send_file.read()
 
+    file_name = file_path.split("/")[-1]
+    target_client.connection.send((SEND_FILE % file_name).encode())
+
     while data:
         target_client.connection.send(str(data).encode())
         data = send_file.read()
+
+    send_file.close()
 
 
 def find_client(channel, username) -> Client:
@@ -263,7 +287,7 @@ def find_client(channel, username) -> Client:
 def list_clients(client, channels) -> None:
     """
     V1.1 - List all channels and their capacity.
-    Status: TODO  -- CHECK
+    Status: TODO
     """
     channel_list = []
 
@@ -287,7 +311,7 @@ def whisper_client(client, channel, msg) -> None:
 
     # if muted, send mute message to the client
     if client.muted:
-        client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
+        client.connection.send((STILL_MUTED % (time.strftime('%H:%M:%S'),
                                         client.mute_duration)).encode())
         return
 
@@ -308,7 +332,7 @@ def whisper_client(client, channel, msg) -> None:
                                             target)).encode())
         return
 
-    target_client.connection.send((WHISPER % (client.username, 
+    target_client.connection.send((WHISPER % (client.username,
                                  time.strftime('%H:%M:%S'), message)).encode())
 
     print(WHISPER_SERVER % (client.username, target_client.username,
@@ -321,7 +345,7 @@ def switch_channel(client, channel, msg, channels) -> bool:
     Else print appropriate message and return.
 
     V1.1 - Returns: bool, if the switch is valid or not.
-    Status: TODO  - Check
+    Status: TODO
     """
     # validate the command structure
     command = msg.split()
@@ -337,21 +361,21 @@ def switch_channel(client, channel, msg, channels) -> bool:
     other_channel = channels.get(channel_name, None)
 
     if not other_channel:
-        client.conn.send((INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
+        client.connection.send((INVALID_CHANNEL % (time.strftime('%H:%M:%S'),
                                             channel_name)).encode())
         return False
 
     # check if there is a client with the same username in the new channel
     if not (check_duplicate_username(client.username, other_channel,
-                                                        client.conn)):
-        client.conn.send((DUPLICATE_USER % (time.strftime('%H:%M:%S'),
+                                                        client.connection)):
+        client.connection.send((DUPLICATE_USER % (time.strftime('%H:%M:%S'),
                                             other_channel.name,
                                             client.username)).encode())
         return False
 
     # remove client and connect to other channel
     quit_client(client, channel, close=False)
-    position_client(other_channel, client.conn, client.username, client)
+    position_client(other_channel, client.connection, client.username, client)
 
     return True
 
@@ -367,14 +391,16 @@ def broadcast_in_channel(client, channel, msg) -> None:
 
     # if muted, send mute message to the client
     if client.muted:
-        client.connection.send((MUTED_CLIENT % (time.strftime('%H:%M:%S'),
+        client.connection.send((STILL_MUTED % (time.strftime('%H:%M:%S'),
                                             client.mute_duration)).encode())
         return
 
+    print(CLIENT_MESSAGE % (client.username, time.strftime('%H:%M:%S'), msg))
+
     # broadcast message to all clients in the channel
     for client in channel.clients:
-        client.connection.send((CLIENT_MESSAGE % (time.strftime('%H:%M:%S'),
-                                            client.username, msg)).encode())
+        client.connection.send((CLIENT_MESSAGE % (client.username,
+                                time.strftime('%H:%M:%S'), msg)).encode())
 
 
 def client_handler(client, channel, channels) -> None:
@@ -413,14 +439,10 @@ def client_handler(client, channel, channels) -> None:
                     break
                 else:
                     continue
-
-            # if not a command, broadcast message to all clients in the channel
             else:
                 broadcast_in_channel(client, channel, msg)
-
-            # reset remaining time before AFK
             if not client.muted:
-                client.remaining_time = 100
+                client.remaining_time = CLIENT_INTIAL_TIME
         except EOFError:
             continue
         except OSError:
@@ -441,7 +463,9 @@ def check_duplicate_username(username, channel, conn) -> bool:
     for client in all_clients:
         if client.username == username:
             conn.send((DUPLICATE_USER % (time.strftime('%H:%M:%S'),
-                                        channel.name, username).encode()))
+                                        channel.name, username)).encode())
+            conn.close()
+            # TODO : send code to client
             return False
 
     return True
@@ -455,9 +479,11 @@ def position_client(channel, conn, username, new_client) -> None:
     if len(channel.clients) < channel.capacity and channel.queue.empty():
         channel.clients.append(new_client)
         new_client.in_queue = False
-        new_client.remaining_time = 100
+        new_client.remaining_time = CLIENT_INTIAL_TIME
+        conn.send((WELCOME_MESSAGE % (time.strftime('%H:%M:%S'),
+                                      channel.name, username)).encode())
         server_broadcast(channel, JOINED_CLIENT % (time.strftime('%H:%M:%S'),
-                                                    username))
+                                                   username))
         print(JOINED_SERVER % (time.strftime('%H:%M:%S'), username,
                                             channel.name))
 
@@ -501,9 +527,6 @@ def channel_handler(channel, channels) -> None:
             is_valid = check_duplicate_username(username, channel, conn)
             if not is_valid: continue
 
-            welcome_msg = (WELCOME_MESSAGE %
-                           (time.strftime('%H:%M:%S'), channel.name, username))
-            conn.send(welcome_msg.encode())
             time.sleep(0.1)
             new_client = Client(username, conn, addr)
 
@@ -687,7 +710,7 @@ def mute_user(msg, channels) -> None:
     client.mute_duration = mute_time
 
     client.connection.send((MUTED_CLIENT % 
-                            (time.strftime('%H:%M:%S'))).encode())
+                            (time.strftime('%H:%M:%S'), mute_time)).encode())
 
     server_broadcast(channel, MUTED_CLIENTS % (time.strftime('%H:%M:%S'),
                                         username, mute_time), exclude=username)
@@ -727,7 +750,7 @@ def server_commands(channels) -> None:
     while True:
         try:
             command = input()
-            if command.startswith('/kick'):
+            if command.startswith("/kick"):
                 kick_user(command, channels)
             elif command.startswith("/empty"):
                 empty(command, channels)
@@ -770,10 +793,12 @@ def check_inactive_clients(channels) -> None:
                     if client.remaining_time <= 0:
                         # remove client from the channel and close connection
                         quit_client(client, channel, silent=True)
-                        server_broadcast(AFK % (time.strftime('%H:%M:%S'),
-                                                client.username))
+                        server_broadcast(channel, AFK %
+                                (time.strftime('%H:%M:%S'), client.username))
+                        print(AFK %
+                              (time.strftime('%H:%M:%S'), client.username))
 
-                    if client.remaining_time > 0:
+                    else:
                         client.remaining_time -= 1
 
             time.sleep(0.99)

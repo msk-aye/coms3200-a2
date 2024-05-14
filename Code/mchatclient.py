@@ -12,7 +12,9 @@ import time
 
 
 # Constants
-
+INCOMING_FILE = "FILE:"
+SWITCH_REQUEST = "SWITCH:"
+QUIT_REQUEST = "QUIT:"
 
 
 class User():
@@ -22,6 +24,7 @@ class User():
     Status: Given
     """
 
+
     def __init__(self, username):
         """
         Initialise the user with a given username.
@@ -30,6 +33,7 @@ class User():
         """
         self.username = username
         self.maxBuffer = 1024
+
 
     def connect(self, port):
         """
@@ -42,11 +46,13 @@ class User():
         self.soc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.soc.connect(("localhost", self.port))
 
+
     def disconnect(self):
         """
         Close the socket connection.
         """
         self.soc.close()
+
 
     def send(self, data):
         """
@@ -61,6 +67,7 @@ class User():
             return True
         except (ConnectionResetError, OSError):
             return False
+
 
     def receive(self):
         """
@@ -94,6 +101,7 @@ class User():
         """
         return self.username
 
+
 def input_thread(quitEvent, user):
     """
     The input thread for the client, constantly takes in user input
@@ -110,6 +118,7 @@ def input_thread(quitEvent, user):
             continue
         if not user.send(message):  # ConnectionResetError occured
             quitEvent.set()
+
 
 def output_thread(quitEvent, user):
     """
@@ -134,9 +143,26 @@ def output_thread(quitEvent, user):
         # code you're going to add here is supposed to handle the message/code
         # sent by the server and close the client as well. similarly for
         # switch, and send!
+        # switch, send quit
+
+        if output.startswith(INCOMING_FILE):
+            received = output.split(":")
+            received_file_name =  received[1].strip()
+            contents = user.receive()
+
+            received_file = open(received_file_name, "wb")
+            received_file.write(contents.encode())
+            received_file.close()
+
+        elif output.startswith(SWITCH_REQUEST):
+            pass
+
+        elif output.startswith(QUIT_REQUEST):
+            pass
 
         else:
             print(output, flush=True)  # Send output to stdout
+
 
 def validate_input(port, username):
     """
