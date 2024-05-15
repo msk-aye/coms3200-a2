@@ -51,6 +51,7 @@ class User():
         """
         Close the socket connection.
         """
+        self.soc.shutdown(socket.SHUT_RDWR)
         self.soc.close()
 
 
@@ -136,15 +137,6 @@ def output_thread(quitEvent, user):
             quitEvent.set()
             continue
 
-        # add elif block to handle instructions from server
-        # NOTE: some commands such as quit is directly sent over to the server
-        # server processes the command and closes then confirms to quit by
-        # sending a code/ message to the client and exits itself. The block of
-        # code you're going to add here is supposed to handle the message/code
-        # sent by the server and close the client as well. similarly for
-        # switch, and send!
-        # switch, send quit
-
         if output.startswith(INCOMING_FILE):
             received = output.split(":")
             received_file_name =  received[1].strip()
@@ -155,10 +147,18 @@ def output_thread(quitEvent, user):
             received_file.close()
 
         elif output.startswith(SWITCH_REQUEST):
-            pass
+            user.disconnect()
+            port = output.split(":")[1].strip()
+            try:
+                user.connect(int(port))
+            except:
+                quitEvent.set()
+            user.send(user.get_username())
 
         elif output.startswith(QUIT_REQUEST):
-            pass
+            user.disconnect()
+            quitEvent.set()
+            os._exit(1)
 
         else:
             print(output, flush=True)  # Send output to stdout
@@ -182,7 +182,7 @@ def validate_input(port, username):
     return port, username
 
 
-if __name__ == '__main__':
+def main():
     """
     Main function processing of the chatclient. Creates user object and
     threads and waits for them to finish.
@@ -228,3 +228,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("Ctrl + C Pressed. Exiting...")
         os._exit(0)
+
+
+if __name__ == '__main__':
+    main()
