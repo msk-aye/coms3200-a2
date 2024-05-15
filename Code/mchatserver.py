@@ -234,7 +234,7 @@ def send_client(client, channel, msg) -> None:
         return
 
     target = command[1]
-    file_path = command[2]
+    file_path = command[2].strip("\"")
 
     target_client = find_client(channel, target)
     if not target_client:
@@ -381,6 +381,7 @@ def switch_channel(client, channel, msg, channels) -> bool:
     print(QUIT % (time.strftime('%H:%M:%S'), client.username), flush=True)
     server_broadcast(channel, QUIT % (time.strftime('%H:%M:%S'),
                                     client.username), exclude=client.username)
+
     client.connection.send((SWITCH_REQUEST % other_channel.port).encode())
     quit_client(client, channel, silent=True)
 
