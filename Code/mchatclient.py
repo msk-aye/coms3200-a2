@@ -158,7 +158,7 @@ def output_thread(quitEvent, user):
         elif output.startswith(QUIT_REQUEST):
             user.disconnect()
             quitEvent.set()
-            os._exit(1)
+            os._exit(0)
 
         else:
             print(output, flush=True)  # Send output to stdout

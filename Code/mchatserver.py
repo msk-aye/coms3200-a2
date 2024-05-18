@@ -54,6 +54,7 @@ KICKED = "[Server message (%s)] Kicked %s."
 EMPTY_ERROR = "[Server message (%s)] Usage /empty <channel_name>."
 MUTE_ERROR = "[Server message (%s)] Usage /mute <channel_name> <username> " \
              "<time>."
+SPACE = " "
 SEND_FILE = "FILE: %s:"
 SWITCH_REQUEST = "SWITCH: %s"
 QUIT_REQUEST = "QUIT:"
@@ -325,13 +326,14 @@ def whisper_client(client, channel, msg) -> None:
     # validate the command structure
     command = msg.split()
 
-    if len(command) != 3:
+    if len(command) < 3:
         client.connection.send((WHISPER_ERROR %
                                 time.strftime('%H:%M:%S')).encode())
         return
 
     target = command[1]
-    message = command[2]
+    message = command[2:]
+    message = SPACE.join(message)
 
     target_client = find_client(channel, target)
     if not target_client:
@@ -671,7 +673,7 @@ def empty(msg, channels) -> None:
                                             channel_name))
         return
 
-    # if the channel exists, close connections of all clients in the channel
+    # close connections for all clients in channel and queue
     for client in channel.clients:
         quit_client(client, channel, silent=True)
 
@@ -702,9 +704,10 @@ def mute_user(msg, channels) -> None:
     channel = channels.get(channel_name, None)
 
     # if the channel exists, check if the user is in the channel
-    client = find_client(channel, username)
+    if channel:
+        client = find_client(channel, username)
 
-    if not client or not channel:
+    if not channel or not client:
         print(NOT_HERE % (time.strftime('%H:%M:%S'), username))
 
         if mute_time <= 0:
