@@ -332,8 +332,7 @@ def whisper_client(client, channel, msg) -> None:
         return
 
     target = command[1]
-    message = command[2:]
-    message = SPACE.join(message)
+    message = SPACE.join(command[2:])
 
     target_client = find_client(channel, target)
     if not target_client:
