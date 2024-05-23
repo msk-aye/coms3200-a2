@@ -16,14 +16,14 @@ import queue
 MIN_PORT = 1
 MAX_PORT = 49151
 MAX_CHANNEL_CAPACITY = 5
-CLIENT_INTIAL_TIME = 100
+CLIENT_INTIAL_TIME = 10
 INITIAL_MUTE = 0
 WELCOME_MESSAGE = "[Server message (%s)] Welcome to the %s channel, %s."
 WELCOME_MESSAGE_QUEUE = "[Server message (%s)] Welcome to the %s waiting" \
                         " room, %s."
 QUIT = "[Server message (%s)] %s has left the channel."
 QUEUE_UPDATE = "[Server message (%s)] You are in the waiting queue and there" \
-               " are %d users(s) ahead of you."
+               " are %d user(s) ahead of you."
 MUTED_SERVER = "[Server message (%s)] Muted %s for %d seconds."
 MUTED_CLIENT = "[Server message (%s)] You have been muted for %d seconds."
 MUTED_CLIENTS = "[Server message (%s)] %s has been muted for %d seconds."
@@ -58,9 +58,6 @@ SPACE = " "
 SEND_FILE = "FILE: %s:"
 SWITCH_REQUEST = "SWITCH: %s"
 QUIT_REQUEST = "QUIT:"
-
-
-# TODO: strange behaivour fow queue
 
 
 class Client:
@@ -269,10 +266,10 @@ def send_client(client, channel, msg) -> None:
     send_file.close()
 
     client.connection.send((SENT_CLIENT % (time.strftime('%H:%M:%S'),
-                                file_name, target)).encode())
+                                file_path, target)).encode())
 
     print(SENT_SERVER % (time.strftime('%H:%M:%S'), client.username,
-                        file_name, target))
+                        file_path, target))
 
 
 def find_client(channel, username) -> Client:
@@ -488,12 +485,13 @@ def position_client(channel, conn, username, new_client) -> None:
     Place a client in a channel or queue based on the channel's capacity.
     Status: TODO
     """
+    conn.send((WELCOME_MESSAGE % (time.strftime('%H:%M:%S'),
+                                  channel.name, username)).encode())
+
     if len(channel.clients) < channel.capacity:
         channel.clients.append(new_client)
         new_client.in_queue = False
         new_client.remaining_time = CLIENT_INTIAL_TIME
-        conn.send((WELCOME_MESSAGE % (time.strftime('%H:%M:%S'),
-                                      channel.name, username)).encode())
         server_broadcast(channel, JOINED_CLIENT % (time.strftime('%H:%M:%S'),
                                                    username))
         print(JOINED_SERVER % (time.strftime('%H:%M:%S'), username,
