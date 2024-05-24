@@ -16,7 +16,7 @@ import queue
 MIN_PORT = 1
 MAX_PORT = 49151
 MAX_CHANNEL_CAPACITY = 5
-CLIENT_INTIAL_TIME = 10
+CLIENT_INTIAL_TIME = 100
 INITIAL_MUTE = 0
 WELCOME_MESSAGE = "[Server message (%s)] Welcome to the %s channel, %s."
 WELCOME_MESSAGE_QUEUE = "[Server message (%s)] Welcome to the %s waiting" \
@@ -500,6 +500,7 @@ def position_client(channel, conn, username, new_client) -> None:
     else:
         channel.queue.put(new_client)
         new_client.in_queue = True
+        new_client.remaining_time = CLIENT_INTIAL_TIME
         position = channel.queue.qsize() - 1
         conn.send((WELCOME_MESSAGE_QUEUE % (time.strftime('%H:%M:%S'),
                    channel.name, username)).encode())
@@ -804,7 +805,8 @@ def check_inactive_clients(channels) -> None:
 
                     if client.remaining_time <= 0:
                         # remove client from the channel and close connection
-                        quit_client(client, channel, silent=True)
+                        quit_client(client, channel, silent=True,
+                                            server_silent=True)
                         server_broadcast(channel, AFK %
                                 (time.strftime('%H:%M:%S'), client.username))
                         print(AFK %
